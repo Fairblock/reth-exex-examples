@@ -4,10 +4,9 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
-use alloy_primitives::{Address, Bytes, B256, U256};
 use reth_primitives::{
     revm_primitives::{AccountInfo, Bytecode},
-    SealedBlockWithSenders, StorageEntry,
+    Address, Bytes, SealedBlockWithSenders, StorageEntry, B256, U256,
 };
 use reth_provider::{bundle_state::StorageRevertsIter, OriginalValuesKnown};
 use reth_revm::db::{
@@ -80,9 +79,34 @@ impl Database {
                 id   INTEGER PRIMARY KEY,
                 hash TEXT UNIQUE,
                 data TEXT
+            );
+            CREATE TABLE IF NOT EXISTS variables (
+                id    INTEGER PRIMARY KEY,
+                key   BLOB UNIQUE,
+                value BLOB
             );",
         )?;
         Ok(())
+    }
+  
+    pub fn upsert_dec_key(&self, key: Vec<u8>, value: Vec<u8>) -> eyre::Result<()> {
+        self.connection().execute(
+        "INSERT INTO variables (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )?;
+        Ok(())
+    }
+
+    pub fn get_dec_key(&self, key: Vec<u8>) -> eyre::Result<Option<Vec<u8>>> {
+        match self.connection().query_row::<Vec<u8>, _, _>(
+            "SELECT value FROM variables WHERE key = ?",
+            (key,),
+            |row| row.get(0),
+        ) {
+            Ok(value) => Ok(Some(value)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
     }
 
     /// Insert block with bundle into the database.
