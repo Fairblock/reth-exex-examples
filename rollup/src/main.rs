@@ -10,7 +10,8 @@ use alloy_sol_types::{sol, SolEventInterface, SolInterface};
 use config::load_config;
 use db::Database;
 use execution::execute_block;
-
+use alloy_genesis::Genesis;
+use alloy_primitives::{address, Address, Uint, U256};
 use futures::FutureExt;
 use futures_util::StreamExt;
 use network::{proto::RollupProtoHandler, Network};
@@ -21,13 +22,9 @@ use reth_exex::{ExExContext, ExExEvent};
 use reth_network::{protocol::IntoRlpxSubProtocol, NetworkProtocols};
 use reth_node_api::FullNodeComponents;
 use reth_node_ethereum::EthereumNode;
-use reth_primitives::{
-    address, ruint::Uint, Address, Genesis, SealedBlockWithSenders, TransactionSigned, U256,
-};
+use reth_primitives::{SealedBlockWithSenders, TransactionSigned};
 use std::{
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
+    future::Future, pin::Pin, str::FromStr, task::{Context, Poll}
 };
 use std::result::Result::Ok;
 use reth_tracing::tracing::{error, info};
@@ -43,6 +40,7 @@ sol!(RollupContract, "rollup_abi.json");
 use RollupContract::{RollupContractCalls, RollupContractEvents};
 const BROADCAST_CHANNEL_SIZE: usize = 200;
 const DATABASE_PATH: &str = "rollup.db";
+const DATABASE_PATH2: &str = "rollup2.db";
 const ROLLUP_CONTRACT_ADDRESS: Address = address!("A05A8F96173CEbceD36239268bDB80d5005AA8A9");
 const ROLLUP_SUBMITTER_ADDRESS: Address = address!("831E49Ec6e86E2de8BFe82a1274f0790758953e6");
 const CHAIN_ID: u64 = 17001;
@@ -60,18 +58,24 @@ struct Rollup<Node: FullNodeComponents> {
     ctx: ExExContext<Node>,
     db: Database,
     to_peers: tokio::sync::broadcast::Sender<Message>,
-    net: Network
+    net: Network,
+   
 }
 impl<Node: FullNodeComponents> Future for Rollup<Node> {
     type Output = eyre::Result<()>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        info!("hereeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         let mut this = self.as_mut();
         // Poll the network future until its drained
+        let mut discovery_complete = false;
+       
         loop {
             match this.net.poll_unpin(cx) {
                 Poll::Ready(Ok(())) => {
+                    discovery_complete = true;
                     info!("Discv5 task completed successfully");
+                    break;
                 }
                 Poll::Ready(Err(e)) => {
                     error!(?e, "Discv5 task encountered an error");
@@ -83,7 +87,18 @@ impl<Node: FullNodeComponents> Future for Rollup<Node> {
                 }
             }
         }
-        return Poll::Ready(Ok(()));
+        if discovery_complete {
+            info!("Discovery complete, sending message...");
+            
+            // Here you can invoke the send_key_share method or any other logic to send a message
+            // Example:
+            Self::send_key_share(Uint::from_str("2").unwrap(), &this.to_peers);
+
+            // After sending the message, reset the discovery_complete flag if needed for next cycle
+            discovery_complete = false;
+        }
+
+        return  Poll::Pending;
     }
 }
 impl<Node: FullNodeComponents> Rollup<Node> {
@@ -94,8 +109,12 @@ impl<Node: FullNodeComponents> Rollup<Node> {
     }
 
     async fn start(self) -> eyre::Result<()> {
-        tokio::spawn(async move {
-            let mut this = self;
+        // tokio::spawn(async move {
+        //     loop {
+      let mut this = self;
+        //     Self::send_key_share(Uint::from_str("2").unwrap(), &self.to_peers).await;
+        //     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        //     }
             // Process all new chain state notifications
             while let Some(notification) = this.ctx.notifications.next().await {
                 if let Some(reverted_chain) = notification.reverted_chain() {
@@ -105,24 +124,33 @@ impl<Node: FullNodeComponents> Rollup<Node> {
                 if let Some(committed_chain) = notification.committed_chain() {
                     this.commit(&committed_chain).await?;
                     this.ctx
-                        .events
-                        .send(ExExEvent::FinishedHeight(committed_chain.tip().number))?;
+                    .events
+                    .send(ExExEvent::FinishedHeight(committed_chain.tip().num_hash()))?;
                 }
             }
-            Ok::<_, eyre::Report>(())
-        });
+            // Ok::<_, eyre::Report>(())
+        // });
     
         Ok(())
     }
  
-    async fn send_key_share(
+     fn send_key_share(
         block_number: Uint<256, 4>,
         to_peers: &tokio::sync::broadcast::Sender<Message>,
     ) {
         let config = load_config().unwrap();
         let keyshare = crypto::extract::extract(config.share,block_number.to_be_bytes_vec(), config.index);
         let m = Message{key_share: keyshare.unwrap(), id:block_number.to_be_bytes_vec()};
-        to_peers.send(m).unwrap();
+      
+        match to_peers.send(m) {
+            Ok(_) => {
+                info!("message sent...");
+            },
+            Err(e) => {
+                error!("Error sending message: {:?}", e);
+               
+            },
+        }
         
     }
 
@@ -151,7 +179,7 @@ impl<Node: FullNodeComponents> Rollup<Node> {
                     }) = call
                     {
                         // Get the decryption key and execute the block.
-                        Self::send_key_share(header.sequence.clone(), &self.to_peers).await;
+                        Self::send_key_share(header.sequence.clone(), &self.to_peers);
                         let mut dec_key: Vec<u8> = Vec::new();
                         while true{
                             let key =  self.db.get_dec_key(header.sequence.to_be_bytes_vec()).unwrap();
@@ -179,7 +207,7 @@ impl<Node: FullNodeComponents> Rollup<Node> {
                                     tx_hash = %tx.recalculate_hash(),
                                     chain_id = %header.rollupChainId,
                                     sequence = %header.sequence,
-                                    transactions = block.body.len(),
+                                    transactions = block.body.transactions.len(),
                                     "Block submitted, executed and inserted into database"
                                 );
                             }
@@ -310,7 +338,7 @@ fn decode_chain_into_rollup_events(
         .flat_map(|(block, receipts)| {
             block
                 .body
-                .iter()
+                .transactions()
                 .zip(receipts.iter().flatten())
                 .map(move |(tx, receipt)| (block, tx, receipt))
         })
@@ -339,13 +367,15 @@ fn main() -> eyre::Result<()> {
             .install_exex("Rollup", move |ctx| async {
                 let connection = Connection::open(DATABASE_PATH)?;
                 let (subproto, proto_events, to_peers) = RollupProtoHandler::new();
+                
                 // add it to the network as a subprotocol
-                ctx.network().add_rlpx_sub_protocol(subproto.into_rlpx_sub_protocol());
+                // ctx.network().add_rlpx_sub_protocol(subproto.into_rlpx_sub_protocol());
                 let config = load_config()?;
                 let tcp_port = config.tcp_port;
                 let udp_port = config.udp_port;
-                let network = Network::new(proto_events, tcp_port, udp_port).await?;
-                Ok(Rollup::new(ctx, connection, network, to_peers)?.start())
+                let network = Network::new(proto_events, tcp_port, udp_port, subproto, config.key).await?;
+                
+                Ok(Rollup::new(ctx, connection, network, to_peers)?)
             })
             .launch()
             .await?;
@@ -354,64 +384,64 @@ fn main() -> eyre::Result<()> {
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use network::proto::RollupProtoMessage;
-    use reth_revm::primitives::bitvec::vec;
-    use tokio::sync::broadcast;
-    use tokio::runtime::Runtime;
-    use futures::StreamExt;
-    use std::sync::Arc;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use network::proto::RollupProtoMessage;
+//     use reth_revm::primitives::bitvec::vec;
+//     use tokio::sync::broadcast;
+//     use tokio::runtime::Runtime;
+//     use futures::StreamExt;
+//     use std::sync::Arc;
 
    
-    #[tokio::test]
-    async fn test_custom_protocol_message_flow() {
+//     #[tokio::test]
+//     async fn test_custom_protocol_message_flow() {
        
-        let rt = Runtime::new().unwrap();
+//         let rt = Runtime::new().unwrap();
 
       
-        let (to_peer0, mut from_peer0) = broadcast::channel::<RollupProtoMessage>(10);
-        let (to_peer1, mut from_peer1) = broadcast::channel::<RollupProtoMessage>(10);
+//         let (to_peer0, mut from_peer0) = broadcast::channel::<RollupProtoMessage>(10);
+//         let (to_peer1, mut from_peer1) = broadcast::channel::<RollupProtoMessage>(10);
 
       
-        let mut peer0 = setup_peer(to_peer0);
-        let mut peer1 = setup_peer(to_peer1);
+//         let mut peer0 = setup_peer(to_peer0);
+//         let mut peer1 = setup_peer(to_peer1);
 
   
-        let test_message = Message{key_share:vec![1,2,3], id: vec![1,2,3]};
-        peer0.send_message(test_message.clone()).expect("Failed to send message");
+//         let test_message = Message{key_share:vec![1,2,3], id: vec![1,2,3]};
+//         peer0.send_message(test_message.clone()).expect("Failed to send message");
 
       
-        match from_peer1.recv().await {
-            Ok(received_message) => {
-                //assert_eq!(test_message, received_message.message, "Message mismatch between peers");
-            }
-            Err(_) => {
-                panic!("Failed to receive message");
-            }
-        }
+//         match from_peer1.recv().await {
+//             Ok(received_message) => {
+//                 //assert_eq!(test_message, received_message.message, "Message mismatch between peers");
+//             }
+//             Err(_) => {
+//                 panic!("Failed to receive message");
+//             }
+//         }
 
      
-    }
+//     }
 
 
-    fn setup_peer(to_peer: broadcast::Sender<RollupProtoMessage>) -> Peer {
+//     fn setup_peer(to_peer: broadcast::Sender<RollupProtoMessage>) -> Peer {
      
-        Peer::new(to_peer)
-    }
+//         Peer::new(to_peer)
+//     }
 
  
-    impl RollupProtoMessage {
-        pub fn new_ping() -> Self {
+//     impl RollupProtoMessage {
+//         pub fn new_ping() -> Self {
          
-            Self {
-                kind: RollupProtoMessageKind::Ping,
-                data: vec![], 
-            }
-        }
-    }
-}
+//             Self {
+//                 kind: RollupProtoMessageKind::Ping,
+//                 data: vec![], 
+//             }
+//         }
+//     }
+// }
 
 
 

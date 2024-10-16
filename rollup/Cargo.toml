@@ -19,18 +19,21 @@ reth-provider.workspace = true
 reth-revm.workspace = true
 reth-tracing.workspace = true
 reth.workspace = true
-reth-trie.workspace = true
+# reth-trie.workspace = true
 reth-discv5.workspace = true
 reth-eth-wire.workspace = true
 reth-network-api.workspace = true
 reth-network-peers.workspace = true
 reth-network.workspace = true
-reth-rpc-types.workspace = true
+# reth-rpc-types.workspace = true
 
 
 # alloy
-alloy-consensus = { version = "0.3", features = ["kzg"] }
-alloy-rlp = "0.3"
+alloy-consensus = { workspace = true, features = ["k256"] }
+alloy-eips.workspace = true
+alloy-genesis = "0.4"
+alloy-primitives.workspace = true
+alloy-rlp.workspace = true
 alloy-sol-types.workspace = true
 # networking
 discv5 = "0.7"
@@ -40,6 +43,8 @@ futures-util.workspace = true
 tokio.workspace = true
 futures.workspace = true
 dashmap="6.1.0"
+tokio-stream.workspace = true
+
 # crypto
 hex = "0.4.3"
 base64 = {version = "0.22.1"}

@@ -6,10 +6,11 @@ use data::{Message};
 use reth_eth_wire::{protocol::Protocol, Capability};
 use reth_network::{protocol::ProtocolHandler, Direction};
 use reth_network_api::PeerId;
-use reth_primitives::{Address, Buf, BufMut, BytesMut};
+
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
-
+use alloy_primitives::Address;
+use alloy_rlp::{Buf, BufMut, BytesMut};
 pub(crate) mod connection;
 pub(crate) mod data;
 pub(crate) type ProtoEvents = mpsc::UnboundedReceiver<ProtocolEvent>;
