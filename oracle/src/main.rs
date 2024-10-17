@@ -48,14 +48,14 @@ fn main() -> eyre::Result<()> {
                         // gossiping of data
                         let network = OracleNetwork::new(proto_events, tcp_port, udp_port).await?;
                         // the off-chain data feed stream
-                        let data_feed = DataFeederStream::new(args.binance_symbols).await?;
+                       // let data_feed = DataFeederStream::new(args.binance_symbols).await?;
 
                         // the oracle instance that will orchestrate the network, the execution
                         // extensions, the offchain data stream and the
                         // gossiping the oracle will always sign and
                         // broadcast data via the channel until a peer is
                         // subcribed to it
-                        let oracle = Oracle::new(exex, network, data_feed, to_peers);
+                        let oracle = Oracle::new(exex, network, to_peers);
                         Ok(oracle)
                     })
                 })

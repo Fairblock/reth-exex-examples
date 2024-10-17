@@ -24,7 +24,7 @@ pub(crate) struct Oracle<Node: FullNodeComponents> {
     /// The execution extension task for this node.
     exex: ExEx<Node>,
     /// The offchain data feed stream.
-    data_feed: DataFeederStream,
+
     /// The signer to sign the data feed.
     signer: PrivateKeySigner,
     /// Half of the broadcast channel to send data to connected peers.
@@ -35,10 +35,10 @@ impl<Node: FullNodeComponents> Oracle<Node> {
     pub(crate) fn new(
         exex: ExEx<Node>,
         network: OracleNetwork,
-        data_feed: DataFeederStream,
+     
         to_peers: tokio::sync::broadcast::Sender<SignedTicker>,
     ) -> Self {
-        Self { exex, network, data_feed, signer: PrivateKeySigner::random(), to_peers }
+        Self { exex, network, signer: PrivateKeySigner::random(), to_peers }
     }
 }
 
@@ -64,27 +64,27 @@ impl<Node: FullNodeComponents> Future for Oracle<Node> {
             }
         }
 
-        // Poll the data feed future until it's drained
-        while let Poll::Ready(item) = this.data_feed.poll_next_unpin(cx) {
-            match item {
-                Some(Ok(ticker_data)) => {
-                    let DataFeeds::Binance(ticker) = ticker_data;
-                    let mut buffer = BytesMut::new();
-                    ticker.encode(&mut buffer);
-                    let signature = this.signer.sign_message_sync(&buffer)?;
-                    let signed_ticker = SignedTicker::new(ticker, signature, this.signer.address());
+        // // Poll the data feed future until it's drained
+        // while let Poll::Ready(item) = this.data_feed.poll_next_unpin(cx) {
+        //     match item {
+        //         Some(Ok(ticker_data)) => {
+        //             let DataFeeds::Binance(ticker) = ticker_data;
+        //             let mut buffer = BytesMut::new();
+        //             ticker.encode(&mut buffer);
+        //             let signature = this.signer.sign_message_sync(&buffer)?;
+        //             let signed_ticker = SignedTicker::new(ticker, signature, this.signer.address());
 
-                    if let Err(err) = this.to_peers.send(signed_ticker.clone()) {
-                        error!(?err, "Failed to send ticker to gossip, no peers connected");
-                    }
-                }
-                Some(Err(e)) => {
-                    error!(?e, "Data feed task encountered an error");
-                    return Poll::Ready(Err(e.into()));
-                }
-                None => break,
-            }
-        }
+        //             if let Err(err) = this.to_peers.send(signed_ticker.clone()) {
+        //                 error!(?err, "Failed to send ticker to gossip, no peers connected");
+        //             }
+        //         }
+        //         Some(Err(e)) => {
+        //             error!(?e, "Data feed task encountered an error");
+        //             return Poll::Ready(Err(e.into()));
+        //         }
+        //         None => break,
+        //     }
+        // }
 
         // Poll the exex future until its drained
         loop {

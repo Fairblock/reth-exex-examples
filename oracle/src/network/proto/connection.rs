@@ -44,7 +44,7 @@ impl Stream for OracleConnection {
     type Item = BytesMut;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        
+        panic!("here");
         let this = self.get_mut();
 
         if let Some(initial_ping) = this.initial_ping.take() {

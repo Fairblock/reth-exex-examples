@@ -27,9 +27,11 @@ impl OracleNetwork {
         tcp_port: u16,
         udp_port: u16,
     ) -> eyre::Result<Self> {
-        let disc_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), udp_port);
-        let rlpx_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), tcp_port);
+
+        let disc_addr: SocketAddr = format!("127.0.0.1:30204").parse()?;
+        let rlpx_addr: SocketAddr = format!("127.0.0.1:30203").parse()?;
         let discovery = Discovery::new(disc_addr, rlpx_addr).await?;
+        
         Ok(Self { discovery, proto_events })
     }
 }

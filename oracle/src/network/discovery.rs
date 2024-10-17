@@ -12,7 +12,7 @@ use std::{
     task::{ready, Context, Poll},
 };
 use tokio::sync::mpsc;
-
+use std::str::FromStr;
 /// Helper struct to manage a discovery node using discv5.
 pub(crate) struct Discovery {
     /// The inner discv5 instance.
@@ -33,10 +33,15 @@ impl Discovery {
 
         let config = ListenConfig::from(disc_addr);
         let discv5_config = Config::builder(rlpx_addr)
-            .discv5_config(discv5::ConfigBuilder::new(config).build())
+            .discv5_config(discv5::ConfigBuilder::new(config).disable_enr_update().build())
             .build();
 
         let (discv5, events, node_record) = Discv5::start(&secret_key, discv5_config).await?;
+        println!("-------------------------------------------------: {:?}",discv5.with_discv5(|discv5| discv5.local_enr()).to_string());
+            let enr = Enr::from_str("enr:-Iu4QG2GD7gJPeCCgAX0uGkiyhM-IJdIUtSobLj5YGvYcTSAEC7rjx71w15dIKZuIJ8w2GDFKKGTAN7Q3r8clANOHz8BgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQP1Y8pKysAZbSEX575Xudof7gktjfk5JbqAmhqBhkcbeYN0Y3CCdfmDdWRwgnX6");
+     
+        let r = discv5.with_discv5(|discv5| discv5.send_ping(enr.unwrap())).await;
+        println!("-------------------------------------------------: {:?}",r);
         Ok(Self { inner: discv5, events, node_record })
     }
 
@@ -75,6 +80,7 @@ impl Future for Discovery {
                     }
                     evt => {
                         info!(?evt, "New discovery event.");
+                        return Poll::Ready(Ok(()));
                     }
                 },
                 None => return Poll::Ready(Ok(())),
